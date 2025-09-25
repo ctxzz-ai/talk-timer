@@ -16,28 +16,15 @@ const STORAGE_KEYS = {
   mute: 'talk-timer.mute',
 };
 
-const chimeCounts = [1, 2, 3];
-const timer = new Timer(chimeCounts);
-let messageTimeout = null;
+const DEFAULT_DURATIONS = [600, 300, 300];
+const MIN_MARKERS = 3;
+const state = {
+  durations: [...DEFAULT_DURATIONS],
+};
 
-async function bootstrap() {
-  await initI18n();
-  const elements = cacheElements();
-  restoreSettings(elements);
-  setupEventListeners(elements);
-  timer.configureCallbacks({
-    onTick: (snapshot) => updateUI(snapshot, elements),
-    onSectionEnd: handleSectionEnd,
-    onComplete: () => handleComplete(elements),
-  });
-  updateUI(timer.getSnapshot(), elements);
-  i18n.onChange(() => {
-    updateLanguageToggle();
-    updateUI(timer.getSnapshot(), elements);
-    updateManualChimeLabels(elements);
-  });
-  updateManualChimeLabels(elements);
-}
+const timer = new Timer({ durations: DEFAULT_DURATIONS });
+let elements = null;
+let messageTimeout = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   bootstrap().catch((error) => {
@@ -46,94 +33,103 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+async function bootstrap() {
+  await initI18n();
+  elements = cacheElements();
+  restoreSettings();
+  setupEventListeners();
+
+  timer.configureCallbacks({
+    onTick: (snapshot) => updateUI(snapshot),
+    onSectionEnd: handleSectionEnd,
+    onComplete: handleComplete,
+  });
+
+  i18n.onChange(() => {
+    updateLanguageToggle();
+    updateManualChimeLabels();
+    updateSettingsDisplay();
+    renderProgressBars();
+    updateUI(timer.getSnapshot());
+  });
+
+  updateLanguageToggle();
+  updateManualChimeLabels();
+  updateUI(timer.getSnapshot());
+}
+
 function cacheElements() {
   return {
     timeDisplay: document.getElementById('timeDisplay'),
     currentSection: document.getElementById('currentSection'),
     nextSection: document.getElementById('nextSection'),
-    progressBars: [
-      document.getElementById('progress1'),
-      document.getElementById('progress2'),
-      document.getElementById('progress3'),
-    ],
+    progressList: document.getElementById('progressList'),
     startBtn: document.getElementById('startBtn'),
     pauseBtn: document.getElementById('pauseBtn'),
     resumeBtn: document.getElementById('resumeBtn'),
     resetBtn: document.getElementById('resetBtn'),
     skipBtn: document.getElementById('skipBtn'),
-    chimeButtons: [
-      document.getElementById('chime1'),
-      document.getElementById('chime2'),
-      document.getElementById('chime3'),
-    ],
-    inputs: [
-      document.getElementById('minutes1'),
-      document.getElementById('seconds1'),
-      document.getElementById('minutes2'),
-      document.getElementById('seconds2'),
-      document.getElementById('minutes3'),
-      document.getElementById('seconds3'),
-    ],
+    chimeButtons: Array.from(document.querySelectorAll('[data-chime]')),
     volumeSlider: document.getElementById('volume'),
     volumeValue: document.getElementById('volumeValue'),
     muteCheckbox: document.getElementById('mute'),
+    markerList: document.getElementById('markerList'),
+    addMarkerBtn: document.getElementById('addMarkerBtn'),
     messageArea: document.getElementById('messageArea'),
   };
 }
 
-function restoreSettings(elements) {
-  const durations = loadDurations();
-  timer.setDurations(durations);
-  updateInputsFromDurations(elements.inputs, durations);
+function restoreSettings() {
+  const storedDurations = loadDurations();
+  state.durations = ensureMinimumDurations(storedDurations);
+  timer.setDurations(state.durations);
+  renderSettings();
+  renderProgressBars();
+  updateSettingsDisplay();
 
   const volume = loadVolume();
   setVolume(volume);
   elements.volumeSlider.value = volume;
-  updateVolumeDisplay(elements.volumeValue, volume);
+  updateVolumeDisplay(volume);
 
   const mute = loadMute();
   setMute(mute);
   elements.muteCheckbox.checked = mute;
 }
 
-function setupEventListeners(elements) {
+function setupEventListeners() {
   elements.startBtn.addEventListener('click', async () => {
     const audioReady = await ensureAudioReady();
     if (!audioReady) return;
     timer.start();
-    updateControls(timer.getSnapshot().status, elements);
+    updateControls(timer.getSnapshot().status);
   });
 
   elements.pauseBtn.addEventListener('click', () => {
     timer.pause();
-    updateControls(timer.getSnapshot().status, elements);
+    updateControls(timer.getSnapshot().status);
   });
 
   elements.resumeBtn.addEventListener('click', () => {
     timer.resume();
-    updateControls(timer.getSnapshot().status, elements);
+    updateControls(timer.getSnapshot().status);
   });
 
   elements.resetBtn.addEventListener('click', () => {
     timer.reset();
-    updateControls(timer.getSnapshot().status, elements);
+    updateControls(timer.getSnapshot().status);
   });
 
   elements.skipBtn.addEventListener('click', () => {
     timer.skip();
-    updateControls(timer.getSnapshot().status, elements);
-  });
-
-  elements.inputs.forEach((input) => {
-    input.addEventListener('change', () => handleTimeInputChange(elements));
-    input.addEventListener('blur', () => handleTimeInputChange(elements));
+    updateControls(timer.getSnapshot().status);
   });
 
   elements.volumeSlider.addEventListener('input', (event) => {
     const value = Number(event.target.value);
     setVolume(value);
     saveVolume(value);
-    updateVolumeDisplay(elements.volumeValue, value);
+    updateVolumeDisplay(value);
     if (isAudioInitialized()) {
       setMute(elements.muteCheckbox.checked);
     }
@@ -145,17 +141,33 @@ function setupEventListeners(elements) {
     saveMute(mute);
   });
 
-  elements.chimeButtons.forEach((btn, index) => {
+  elements.chimeButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
       const audioReady = await ensureAudioReady();
       if (!audioReady) return;
-      try {
-        await playChime(index + 1);
-      } catch (error) {
+      const count = Number(btn.dataset.chime) || 1;
+      playChime(count).catch((error) => {
         console.error(error);
         showMessage(i18n.t('audioError'), 'error');
-      }
+      });
     });
+  });
+
+  elements.markerList.addEventListener('change', (event) => {
+    if (!event.target.classList.contains('time-input')) return;
+    handleMarkerUpdate();
+  });
+
+  elements.markerList.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-action="remove"]');
+    if (!target) return;
+    const index = Number(target.dataset.index);
+    if (Number.isNaN(index)) return;
+    removeMarker(index);
+  });
+
+  elements.addMarkerBtn.addEventListener('click', () => {
+    addMarker();
   });
 
   document.addEventListener('keydown', (event) => {
@@ -172,15 +184,15 @@ function setupEventListeners(elements) {
         elements.startBtn.click();
         return;
       }
-      updateControls(timer.getSnapshot().status, elements);
+      updateControls(timer.getSnapshot().status);
     } else if (event.code === 'KeyR') {
       event.preventDefault();
       timer.reset();
-      updateControls(timer.getSnapshot().status, elements);
+      updateControls(timer.getSnapshot().status);
     } else if (event.code === 'ArrowRight') {
       event.preventDefault();
       timer.skip();
-      updateControls(timer.getSnapshot().status, elements);
+      updateControls(timer.getSnapshot().status);
     }
   });
 }
@@ -205,112 +217,268 @@ async function ensureAudioReady() {
   }
 }
 
-function handleSectionEnd(sectionIndex, chimes) {
+function handleSectionEnd(sectionIndex) {
+  const chimes = timer.getChimeCount(sectionIndex);
   playChime(chimes).catch((error) => {
     console.error(error);
     showMessage(i18n.t('audioError'), 'error');
   });
 }
 
-function handleComplete(elements) {
-  updateControls(timer.getSnapshot().status, elements);
+function handleComplete() {
+  updateControls(timer.getSnapshot().status);
   showMessage(i18n.t('finished'), 'success');
 }
 
-function handleTimeInputChange(elements) {
-  const durations = readDurationsFromInputs(elements.inputs);
+function addMarker() {
+  const durations = [...state.durations];
+  const defaultStep = 300;
+  durations.push(defaultStep);
+  state.durations = durations;
+  applyDurations(durations, { rebuild: true });
+}
+
+function removeMarker(index) {
+  if (state.durations.length <= MIN_MARKERS) return;
+  if (index < MIN_MARKERS) {
+    // Do not remove the primary three markers.
+    return;
+  }
+  const durations = state.durations.filter((_, idx) => idx !== index);
+  state.durations = ensureMinimumDurations(durations);
+  applyDurations(state.durations, { rebuild: true });
+}
+
+function handleMarkerUpdate() {
+  const totals = readTotalsFromSettings();
+  if (!totals.length) return;
+  const durations = totals.map((total, index) => {
+    if (index === 0) return total;
+    return total - totals[index - 1];
+  });
+  state.durations = ensureMinimumDurations(durations);
+  applyDurations(state.durations, { rebuild: false });
+}
+
+function applyDurations(durations, { rebuild = false } = {}) {
   timer.setDurations(durations);
-  try {
-    saveDurations(durations);
-  } catch (error) {
-    console.error(error);
-    showMessage(i18n.t('savingError'), 'error');
+  saveDurations(durations);
+  if (rebuild) {
+    renderSettings();
+    renderProgressBars();
   }
-  updateUI(timer.getSnapshot(), elements);
+  updateSettingsDisplay();
+  updateUI(timer.getSnapshot());
 }
 
-function readDurationsFromInputs(inputs) {
-  const values = [];
-  for (let i = 0; i < inputs.length; i += 2) {
-    const minutes = clampNumber(parseInt(inputs[i].value, 10));
-    const seconds = clampNumber(parseInt(inputs[i + 1].value, 10));
-    inputs[i].value = minutes;
-    inputs[i + 1].value = seconds;
-    values.push(minutes * 60 + seconds);
+function readTotalsFromSettings() {
+  const rows = Array.from(elements.markerList.querySelectorAll('.settings-row'));
+  const totals = [];
+  rows.forEach((row, index) => {
+    const minutesInput = row.querySelector('[data-role="minutes"]');
+    const secondsInput = row.querySelector('[data-role="seconds"]');
+    if (!minutesInput || !secondsInput) return;
+    let minutes = clamp(Number(minutesInput.value), 0, 180);
+    let seconds = clamp(Number(secondsInput.value), 0, 59);
+    minutesInput.value = minutes;
+    secondsInput.value = seconds;
+    let total = minutes * 60 + seconds;
+    const previous = totals[index - 1] ?? 0;
+    if (index === 0 && total < 1) total = 1;
+    if (index > 0 && total <= previous) {
+      total = previous + 1;
+    }
+    totals.push(total);
+  });
+  return totals;
+}
+
+function renderSettings() {
+  const list = elements.markerList;
+  list.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  state.durations.forEach((_, index) => {
+    const row = document.createElement('div');
+    row.className = 'settings-row';
+    row.dataset.index = index;
+
+    const label = document.createElement('span');
+    label.className = 'settings-label';
+    row.appendChild(label);
+
+    const minutesGroup = document.createElement('div');
+    minutesGroup.className = 'input-group';
+    const minutesLabel = document.createElement('label');
+    minutesLabel.setAttribute('for', `marker-${index}-minutes`);
+    minutesLabel.dataset.i18n = 'minutes';
+    minutesLabel.textContent = i18n.t('minutes');
+    const minutesInput = document.createElement('input');
+    minutesInput.type = 'number';
+    minutesInput.id = `marker-${index}-minutes`;
+    minutesInput.className = 'time-input';
+    minutesInput.dataset.role = 'minutes';
+    minutesInput.dataset.index = index;
+    minutesInput.min = '0';
+    minutesInput.max = '180';
+    minutesInput.inputMode = 'numeric';
+    minutesGroup.appendChild(minutesLabel);
+    minutesGroup.appendChild(minutesInput);
+
+    const secondsGroup = document.createElement('div');
+    secondsGroup.className = 'input-group';
+    const secondsLabel = document.createElement('label');
+    secondsLabel.setAttribute('for', `marker-${index}-seconds`);
+    secondsLabel.dataset.i18n = 'seconds';
+    secondsLabel.textContent = i18n.t('seconds');
+    const secondsInput = document.createElement('input');
+    secondsInput.type = 'number';
+    secondsInput.id = `marker-${index}-seconds`;
+    secondsInput.className = 'time-input';
+    secondsInput.dataset.role = 'seconds';
+    secondsInput.dataset.index = index;
+    secondsInput.min = '0';
+    secondsInput.max = '59';
+    secondsInput.inputMode = 'numeric';
+    secondsGroup.appendChild(secondsLabel);
+    secondsGroup.appendChild(secondsInput);
+
+    row.appendChild(minutesGroup);
+    row.appendChild(secondsGroup);
+
+    if (index >= MIN_MARKERS) {
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'icon-button remove-marker';
+      removeBtn.dataset.action = 'remove';
+      removeBtn.dataset.index = index;
+      removeBtn.setAttribute('aria-label', i18n.t('removeMarker', { index: index + 1 }));
+      removeBtn.innerHTML = '×';
+      row.appendChild(removeBtn);
+    }
+
+    fragment.appendChild(row);
+  });
+  list.appendChild(fragment);
+}
+
+function updateSettingsDisplay() {
+  const cumulative = getCumulativeDurations(state.durations);
+  const rows = Array.from(elements.markerList.querySelectorAll('.settings-row'));
+  rows.forEach((row, index) => {
+    const total = typeof cumulative[index] === 'number' ? cumulative[index] : 0;
+    const label = row.querySelector('.settings-label');
+    if (label) {
+      label.textContent = formatMarkerHeading(index, total);
+    }
+    const minutesInput = row.querySelector('[data-role="minutes"]');
+    const secondsInput = row.querySelector('[data-role="seconds"]');
+    if (minutesInput && secondsInput) {
+      const minutes = Math.floor(total / 60);
+      const seconds = total % 60;
+      minutesInput.value = minutes;
+      secondsInput.value = seconds;
+    }
+    const removeBtn = row.querySelector('[data-action="remove"]');
+    if (removeBtn) {
+      removeBtn.setAttribute('aria-label', i18n.t('removeMarker', { index: index + 1 }));
+    }
+  });
+  const addLabel = elements.addMarkerBtn;
+  if (addLabel) {
+    addLabel.textContent = i18n.t('addMarker');
   }
-  return values;
 }
 
-function clampNumber(value) {
-  if (Number.isNaN(value) || value < 0) return 0;
-  return Math.min(59, value);
+function renderProgressBars() {
+  if (!elements.progressList) return;
+  elements.progressList.innerHTML = '';
+  const fragment = document.createDocumentFragment();
+  state.durations.forEach((_, index) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'progress-bar';
+    wrapper.dataset.index = index;
+    wrapper.setAttribute('role', 'listitem');
+
+    const inner = document.createElement('div');
+    inner.className = 'progress-bar-inner';
+    wrapper.appendChild(inner);
+
+    const label = document.createElement('span');
+    label.className = 'progress-label';
+    wrapper.appendChild(label);
+
+    fragment.appendChild(wrapper);
+  });
+  elements.progressList.appendChild(fragment);
+  elements.progressItems = Array.from(elements.progressList.querySelectorAll('.progress-bar-inner'));
+  elements.progressLabels = Array.from(elements.progressList.querySelectorAll('.progress-label'));
+  updateProgressLabels();
 }
 
-function updateInputsFromDurations(inputs, durations) {
-  for (let i = 0; i < durations.length; i += 1) {
-    const minutes = Math.floor(durations[i] / 60);
-    const seconds = durations[i] % 60;
-    inputs[i * 2].value = minutes;
-    inputs[i * 2 + 1].value = seconds;
-  }
-}
-
-function updateVolumeDisplay(target, value) {
-  const percent = Math.round(value * 100);
-  target.textContent = `${percent}%`;
-}
-
-function updateUI(snapshot, elements) {
-  if (!snapshot) return;
-  updateTimeDisplay(snapshot, elements.timeDisplay);
-  updateSectionLabels(snapshot, elements.currentSection);
-  updateNextSection(snapshot, elements.nextSection);
-  updateProgressBars(snapshot, elements.progressBars);
-  updateControls(snapshot.status, elements);
-}
-
-function updateTimeDisplay(snapshot, timeDisplay) {
-  const remaining = Math.max(0, snapshot.remaining || 0);
-  timeDisplay.textContent = formatTime(remaining);
-}
-
-function formatTime(seconds) {
-  const totalSeconds = Math.round(seconds);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
-function updateSectionLabels(snapshot, currentSectionEl) {
-  const key = `section${snapshot.sectionIndex + 1}Name`;
-  currentSectionEl.textContent = i18n.t(key);
-}
-
-function updateNextSection(snapshot, nextSectionEl) {
-  const { nextSectionIndex } = snapshot;
-  if (snapshot.status === 'finished') {
-    nextSectionEl.textContent = i18n.t('finished');
-    return;
-  }
-  if (nextSectionIndex == null) {
-    nextSectionEl.textContent = '';
-    return;
-  }
-  const key = `section${nextSectionIndex + 1}Name`;
-  const name = i18n.t(key);
-  const chimes = chimeCounts[nextSectionIndex];
-  nextSectionEl.textContent = i18n.t('nextUp', { name, count: chimes });
-}
-
-function updateProgressBars(snapshot, bars) {
-  snapshot.progress.forEach((value, index) => {
-    if (!bars[index]) return;
-    const width = Math.max(0, Math.min(100, value * 100));
-    bars[index].style.width = `${width}%`;
+function updateProgressLabels() {
+  const cumulative = getCumulativeDurations(state.durations);
+  if (!elements.progressLabels) return;
+  elements.progressLabels.forEach((label, index) => {
+    label.textContent = formatMarkerHeading(index, cumulative[index]);
   });
 }
 
-function updateControls(status, elements) {
+function updateUI(snapshot) {
+  if (!snapshot) return;
+  ensureProgressStructure(snapshot.totalSections);
+  updateTimeDisplay(snapshot);
+  updateSectionLabels(snapshot);
+  updateNextSection(snapshot);
+  updateProgress(snapshot);
+  updateControls(snapshot.status);
+}
+
+function ensureProgressStructure(count) {
+  if (!elements.progressList) return;
+  if (elements.progressList.childElementCount !== count) {
+    renderProgressBars();
+  }
+}
+
+function updateTimeDisplay(snapshot) {
+  const remaining = Math.max(0, snapshot.remaining || 0);
+  elements.timeDisplay.textContent = formatTime(remaining);
+}
+
+function updateSectionLabels(snapshot) {
+  if (snapshot.status === 'finished') {
+    elements.currentSection.textContent = i18n.t('finished');
+    return;
+  }
+  const cumulative = getCumulativeDurations(state.durations);
+  const index = Math.min(snapshot.sectionIndex, cumulative.length - 1);
+  elements.currentSection.textContent = formatMarkerHeading(index, cumulative[index]);
+}
+
+function updateNextSection(snapshot) {
+  if (snapshot.status === 'finished' || snapshot.nextSectionIndex === null) {
+    elements.nextSection.textContent = '';
+    return;
+  }
+  const cumulative = getCumulativeDurations(state.durations);
+  const nextIndex = snapshot.nextSectionIndex;
+  const countText = formatCountText(timer.getChimeCount(nextIndex));
+  const time = formatTime(cumulative[nextIndex]);
+  elements.nextSection.textContent = i18n.t('nextMarker', { count: countText, time });
+}
+
+function updateProgress(snapshot) {
+  if (!elements.progressItems) return;
+  snapshot.sections.forEach((section, index) => {
+    const inner = elements.progressItems[index];
+    if (!inner) return;
+    const width = Math.max(0, Math.min(100, section.progress * 100));
+    inner.style.width = `${width}%`;
+  });
+  updateProgressLabels();
+}
+
+function updateControls(status) {
   switch (status) {
     case 'running':
       elements.startBtn.disabled = true;
@@ -338,8 +506,13 @@ function updateControls(status, elements) {
   }
 }
 
+function updateVolumeDisplay(value) {
+  const percent = Math.round(value * 100);
+  elements.volumeValue.textContent = `${percent}%`;
+}
+
 function showMessage(message, type = 'error') {
-  const area = document.getElementById('messageArea');
+  const area = elements.messageArea;
   if (!area) return;
   area.textContent = message;
   area.classList.remove('success', 'info');
@@ -359,34 +532,95 @@ function showMessage(message, type = 'error') {
   }
 }
 
-function updateManualChimeLabels(elements) {
-  elements.chimeButtons.forEach((btn, index) => {
-    const count = index + 1;
-    const bellWord = i18n.t('bell');
-    if (i18n.current === 'ja') {
-      btn.setAttribute('aria-label', `${count}${bellWord}`);
-    } else {
-      const plural = count === 1 ? '' : 's';
-      btn.setAttribute('aria-label', `${count} ${bellWord}${plural}`);
-    }
+function updateManualChimeLabels() {
+  elements.chimeButtons.forEach((btn) => {
+    const count = Number(btn.dataset.chime) || 1;
+    const label = formatCountText(count);
+    btn.setAttribute('aria-label', label);
   });
+}
+
+function formatMarkerHeading(index, totalSeconds) {
+  const countText = formatCountText(timer.getChimeCount(index));
+  return i18n.t('markerHeading', {
+    count: countText,
+    time: formatTime(totalSeconds),
+  });
+}
+
+function formatCountText(count) {
+  const bellWord = i18n.t('bell');
+  if (i18n.current === 'ja') {
+    return `${count}${bellWord}`;
+  }
+  const plural = count === 1 ? '' : 's';
+  return `${count} ${bellWord}${plural}`;
+}
+
+function formatTime(seconds) {
+  const totalSeconds = Math.max(0, Math.round(seconds));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function getCumulativeDurations(durations) {
+  const result = [];
+  let sum = 0;
+  durations.forEach((duration) => {
+    sum += Math.max(0, Number(duration) || 0);
+    result.push(sum);
+  });
+  return result;
+}
+
+function ensureMinimumDurations(list) {
+  const sanitized = Array.isArray(list)
+    ? list.map((value) => Math.max(0, Number(value) || 0)).filter((value) => Number.isFinite(value))
+    : [];
+  if (sanitized.length === 0) {
+    return [...DEFAULT_DURATIONS];
+  }
+  while (sanitized.length < MIN_MARKERS) {
+    sanitized.push(300);
+  }
+  return sanitized;
+}
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }
 
 function loadDurations() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.times);
-    if (!raw) return [900, 300, 300];
+    if (!raw) return [...DEFAULT_DURATIONS];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length !== 3) return [900, 300, 300];
-    return parsed.map((value) => Math.max(0, Number(value) || 0));
+    if (!Array.isArray(parsed)) return [...DEFAULT_DURATIONS];
+    const sanitized = parsed.map((value) => Math.max(0, Number(value) || 0));
+    if (
+      sanitized.length === 3 &&
+      sanitized[0] === 900 &&
+      sanitized[1] === 300 &&
+      sanitized[2] === 300
+    ) {
+      return [...DEFAULT_DURATIONS];
+    }
+    return sanitized;
   } catch (error) {
     console.error(error);
-    return [900, 300, 300];
+    return [...DEFAULT_DURATIONS];
   }
 }
 
 function saveDurations(durations) {
-  localStorage.setItem(STORAGE_KEYS.times, JSON.stringify(durations));
+  try {
+    localStorage.setItem(STORAGE_KEYS.times, JSON.stringify(durations));
+  } catch (error) {
+    console.error(error);
+    showMessage(i18n.t('savingError'), 'error');
+  }
 }
 
 function loadVolume() {
@@ -395,7 +629,7 @@ function loadVolume() {
     if (raw === null) return 1;
     const value = Number(raw);
     if (Number.isNaN(value)) return 1;
-    return Math.min(1, Math.max(0, value));
+    return clamp(value, 0, 1);
   } catch (error) {
     console.error(error);
     return 1;

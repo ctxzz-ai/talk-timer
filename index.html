@@ -38,27 +38,16 @@
     <main class="app-main">
       <section class="status-panel" aria-live="polite">
         <div class="section-info">
-          <h2 class="section-name" id="currentSection" data-i18n="section1Name">Presentation</h2>
+          <h2 class="section-name" id="currentSection">—</h2>
           <p class="next-section" id="nextSection"></p>
         </div>
         <div class="timer-display" aria-live="polite" aria-atomic="true">
-          <span id="timeDisplay">15:00</span>
+          <span id="timeDisplay">10:00</span>
         </div>
       </section>
 
       <section class="progress-panel" aria-label="progress">
-        <div class="progress-bar" data-section="1">
-          <div class="progress-bar-inner" id="progress1"></div>
-          <span class="progress-label" data-i18n="section1Name">Presentation</span>
-        </div>
-        <div class="progress-bar" data-section="2">
-          <div class="progress-bar-inner" id="progress2"></div>
-          <span class="progress-label" data-i18n="section2Name">Discussion</span>
-        </div>
-        <div class="progress-bar" data-section="3">
-          <div class="progress-bar-inner" id="progress3"></div>
-          <span class="progress-label" data-i18n="section3Name">Overtime</span>
-        </div>
+        <div id="progressList" class="progress-list" role="list"></div>
       </section>
 
       <section class="controls-panel" aria-label="timer controls">
@@ -75,54 +64,22 @@
           <button class="pill-button" data-chime="2" id="chime2">2</button>
           <button class="pill-button" data-chime="3" id="chime3">3</button>
         </div>
-        <p class="shortcut-hint" data-i18n="shortcuts">Shortcuts: Space = start/pause, R = reset, → = next section</p>
+        <p class="shortcut-hint" data-i18n="shortcuts">Shortcuts: Space = start/pause, R = reset, → = next marker</p>
       </section>
 
       <section class="settings-panel" aria-labelledby="settingsHeading">
-        <h2 id="settingsHeading" data-i18n="settings">Section times</h2>
-        <form id="settingsForm" class="settings-form">
-          <div class="settings-row" data-section="1">
-            <span class="settings-label" data-i18n="section1Name">Presentation</span>
-            <div class="input-group">
-              <label for="minutes1" data-i18n="minutes">Minutes</label>
-              <input type="number" id="minutes1" min="0" max="59" value="15">
-            </div>
-            <div class="input-group">
-              <label for="seconds1" data-i18n="seconds">Seconds</label>
-              <input type="number" id="seconds1" min="0" max="59" value="0">
-            </div>
-          </div>
-          <div class="settings-row" data-section="2">
-            <span class="settings-label" data-i18n="section2Name">Discussion</span>
-            <div class="input-group">
-              <label for="minutes2" data-i18n="minutes">Minutes</label>
-              <input type="number" id="minutes2" min="0" max="59" value="5">
-            </div>
-            <div class="input-group">
-              <label for="seconds2" data-i18n="seconds">Seconds</label>
-              <input type="number" id="seconds2" min="0" max="59" value="0">
-            </div>
-          </div>
-          <div class="settings-row" data-section="3">
-            <span class="settings-label" data-i18n="section3Name">Overtime</span>
-            <div class="input-group">
-              <label for="minutes3" data-i18n="minutes">Minutes</label>
-              <input type="number" id="minutes3" min="0" max="59" value="5">
-            </div>
-            <div class="input-group">
-              <label for="seconds3" data-i18n="seconds">Seconds</label>
-              <input type="number" id="seconds3" min="0" max="59" value="0">
-            </div>
-          </div>
+        <div class="settings-header">
+          <h2 id="settingsHeading" data-i18n="settings">Chime schedule</h2>
+          <button type="button" id="addMarkerBtn" class="pill-button add-marker" data-i18n="addMarker">Add marker</button>
+        </div>
+        <form id="settingsForm" class="settings-form" autocomplete="off">
+          <div id="markerList" class="marker-list" role="group" aria-labelledby="settingsHeading"></div>
         </form>
       </section>
 
       <div class="message-area" id="messageArea" role="alert"></div>
     </main>
 
-    <footer class="app-footer">
-      <small data-i18n="footer">Designed for conference chairs — stay on track effortlessly.</small>
-    </footer>
   </div>
 
   <script src="scripts/i18n.js" type="module"></script>

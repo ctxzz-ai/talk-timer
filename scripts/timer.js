@@ -1,7 +1,11 @@
 export class Timer {
-  constructor(chimeCounts = [1, 2, 3]) {
-    this.chimeCounts = chimeCounts;
-    this.baseDurations = [900, 300, 300];
+  constructor({ durations = [600, 300, 300], chimeStrategy } = {}) {
+    this.baseDurations = Array.isArray(durations) && durations.length
+      ? durations.map((s) => Math.max(0, Number(s) || 0))
+      : [600, 300, 300];
+    this.chimeStrategy = typeof chimeStrategy === 'function'
+      ? chimeStrategy
+      : (index) => (index + 1 >= 3 ? 3 : index + 1);
     this.onTick = null;
     this.onSectionEnd = null;
     this.onComplete = null;
@@ -13,7 +17,7 @@ export class Timer {
     this.elapsedInSection = 0;
     this.status = 'idle';
     this.sectionProgress = this.baseDurations.map(() => 0);
-    this.remaining = this.baseDurations[0];
+    this.remaining = this.baseDurations[0] || 0;
     this.rafId = null;
     this.lastTimestamp = null;
   }
@@ -26,23 +30,18 @@ export class Timer {
   }
 
   setDurations(secondsArray) {
-    if (!Array.isArray(secondsArray) || secondsArray.length !== this.baseDurations.length) {
+    if (!Array.isArray(secondsArray) || secondsArray.length === 0) {
       return;
     }
-    this.baseDurations = secondsArray.map((s) => Math.max(0, Number(s) || 0));
-    if (this.status === 'idle' || this.status === 'finished') {
-      this._resetState();
-      this._emitTick();
+    const sanitized = secondsArray.map((s) => Math.max(0, Number(s) || 0));
+    this.baseDurations = sanitized;
+    this.sectionProgress = this.baseDurations.map(() => 0);
+
+    const shouldReset = this.status !== 'idle';
+    if (shouldReset) {
+      this.reset();
     } else {
-      const currentDuration = this.baseDurations[this.sectionIndex];
-      const progress = currentDuration === 0 ? 1 : Math.min(1, this.elapsedInSection / currentDuration);
-      this.elapsedInSection = progress * currentDuration;
-      this.remaining = Math.max(0, currentDuration - this.elapsedInSection);
-      this.sectionProgress = this.baseDurations.map((duration, idx) => {
-        if (idx < this.sectionIndex) return 1;
-        if (idx > this.sectionIndex) return 0;
-        return duration === 0 ? 1 : Math.min(1, this.elapsedInSection / duration);
-      });
+      this._resetState();
       this._emitTick();
     }
   }
@@ -114,7 +113,7 @@ export class Timer {
 
   _advanceSection(triggerChime) {
     if (triggerChime && typeof this.onSectionEnd === 'function') {
-      const chimes = this.chimeCounts[this.sectionIndex] ?? 1;
+      const chimes = this.getChimeCount(this.sectionIndex);
       this.onSectionEnd(this.sectionIndex, chimes);
     }
     this.sectionProgress[this.sectionIndex] = 1;
@@ -155,12 +154,28 @@ export class Timer {
         progress: this.sectionProgress[idx],
       })),
       nextSectionIndex: this.sectionIndex + 1 < this.baseDurations.length ? this.sectionIndex + 1 : null,
+      totalSections: this.baseDurations.length,
     };
   }
 
   _emitTick() {
     if (typeof this.onTick === 'function') {
       this.onTick(this.getSnapshot());
+    }
+  }
+
+  getChimeCount(index) {
+    if (typeof this.chimeStrategy === 'function') {
+      const result = this.chimeStrategy(index);
+      const numeric = Math.max(1, Number(result) || 1);
+      return Math.round(numeric);
+    }
+    return Math.min(index + 1, 3);
+  }
+
+  setChimeStrategy(strategy) {
+    if (typeof strategy === 'function') {
+      this.chimeStrategy = strategy;
     }
   }
 }

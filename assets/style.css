@@ -229,6 +229,11 @@ body:focus-visible {
   gap: 0.9rem;
 }
 
+.progress-list {
+  display: grid;
+  gap: 1rem;
+}
+
 .progress-bar {
   position: relative;
   background: rgba(13, 17, 23, 0.6);
@@ -263,20 +268,33 @@ body:focus-visible {
 }
 
 .settings-panel h2 {
-  margin-top: 0;
+  margin: 0;
   font-size: 1.2rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
 .settings-form {
+  display: block;
+}
+
+.marker-list {
   display: grid;
   gap: 1rem;
 }
 
 .settings-row {
   display: grid;
-  grid-template-columns: 1.4fr repeat(2, minmax(130px, 1fr));
+  grid-template-columns: minmax(160px, 1fr) repeat(2, minmax(120px, 0.6fr)) auto;
   gap: 1rem;
   align-items: center;
   padding: 0.9rem 1rem;
@@ -331,9 +349,35 @@ body:focus-visible {
   color: var(--text-muted);
 }
 
-.app-footer {
+.add-marker {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.add-marker:hover,
+.add-marker:focus-visible {
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.icon-button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: var(--text-muted);
-  font-size: 0.85rem;
+  border-radius: 999px;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .sr-only {
@@ -354,7 +398,17 @@ body:focus-visible {
   }
 
   .settings-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .settings-row .settings-label {
+    grid-column: 1 / -1;
+  }
+
+  .settings-row .icon-button {
+    justify-self: end;
+    grid-column: 2 / 3;
   }
 
   .controls-group {
@@ -402,7 +456,12 @@ body:focus-visible {
   }
 
   .settings-row {
+    grid-template-columns: 1fr;
     gap: 0.7rem;
+  }
+
+  .settings-row .icon-button {
+    grid-column: 1 / -1;
   }
 }
 
