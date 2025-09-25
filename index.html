@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Talk Timer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Space+Grotesk:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="app-header">
+      <div class="title-group">
+        <h1 data-i18n="title">Talk Timer</h1>
+        <p class="subtitle" data-i18n="subtitle">Precision timing for conference sessions</p>
+      </div>
+      <div class="controls-group" role="group" aria-label="global controls">
+        <div class="control-item language-toggle">
+          <label for="langToggle" class="sr-only">Language</label>
+          <button id="langToggle" class="pill-button" aria-live="polite"></button>
+        </div>
+        <div class="control-item volume-control">
+          <label for="volume" data-i18n="volume">Volume</label>
+          <input id="volume" type="range" min="0" max="1" step="0.01" aria-describedby="volumeValue">
+          <span id="volumeValue" class="volume-value">100%</span>
+        </div>
+        <div class="control-item mute-control">
+          <label class="checkbox pill" aria-live="polite">
+            <input type="checkbox" id="mute">
+            <span data-i18n="mute">Mute</span>
+          </label>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="status-panel" aria-live="polite">
+        <div class="section-info">
+          <h2 class="section-name" id="currentSection" data-i18n="section1Name">Presentation</h2>
+          <p class="next-section" id="nextSection"></p>
+        </div>
+        <div class="timer-display" aria-live="polite" aria-atomic="true">
+          <span id="timeDisplay">15:00</span>
+        </div>
+      </section>
+
+      <section class="progress-panel" aria-label="progress">
+        <div class="progress-bar" data-section="1">
+          <div class="progress-bar-inner" id="progress1"></div>
+          <span class="progress-label" data-i18n="section1Name">Presentation</span>
+        </div>
+        <div class="progress-bar" data-section="2">
+          <div class="progress-bar-inner" id="progress2"></div>
+          <span class="progress-label" data-i18n="section2Name">Discussion</span>
+        </div>
+        <div class="progress-bar" data-section="3">
+          <div class="progress-bar-inner" id="progress3"></div>
+          <span class="progress-label" data-i18n="section3Name">Overtime</span>
+        </div>
+      </section>
+
+      <section class="controls-panel" aria-label="timer controls">
+        <div class="primary-controls">
+          <button class="control-button" id="startBtn" data-i18n="start">Start</button>
+          <button class="control-button" id="pauseBtn" data-i18n="pause" disabled>Pause</button>
+          <button class="control-button" id="resumeBtn" data-i18n="resume" disabled>Resume</button>
+          <button class="control-button" id="resetBtn" data-i18n="reset">Reset</button>
+          <button class="control-button" id="skipBtn" data-i18n="skip">Skip</button>
+        </div>
+        <div class="chime-controls" role="group" aria-label="manual chimes">
+          <span class="control-label" data-i18n="manualChime">Manual chime</span>
+          <button class="pill-button" data-chime="1" id="chime1">1</button>
+          <button class="pill-button" data-chime="2" id="chime2">2</button>
+          <button class="pill-button" data-chime="3" id="chime3">3</button>
+        </div>
+        <p class="shortcut-hint" data-i18n="shortcuts">Shortcuts: Space = start/pause, R = reset, → = next section</p>
+      </section>
+
+      <section class="settings-panel" aria-labelledby="settingsHeading">
+        <h2 id="settingsHeading" data-i18n="settings">Section times</h2>
+        <form id="settingsForm" class="settings-form">
+          <div class="settings-row" data-section="1">
+            <span class="settings-label" data-i18n="section1Name">Presentation</span>
+            <div class="input-group">
+              <label for="minutes1" data-i18n="minutes">Minutes</label>
+              <input type="number" id="minutes1" min="0" max="59" value="15">
+            </div>
+            <div class="input-group">
+              <label for="seconds1" data-i18n="seconds">Seconds</label>
+              <input type="number" id="seconds1" min="0" max="59" value="0">
+            </div>
+          </div>
+          <div class="settings-row" data-section="2">
+            <span class="settings-label" data-i18n="section2Name">Discussion</span>
+            <div class="input-group">
+              <label for="minutes2" data-i18n="minutes">Minutes</label>
+              <input type="number" id="minutes2" min="0" max="59" value="5">
+            </div>
+            <div class="input-group">
+              <label for="seconds2" data-i18n="seconds">Seconds</label>
+              <input type="number" id="seconds2" min="0" max="59" value="0">
+            </div>
+          </div>
+          <div class="settings-row" data-section="3">
+            <span class="settings-label" data-i18n="section3Name">Overtime</span>
+            <div class="input-group">
+              <label for="minutes3" data-i18n="minutes">Minutes</label>
+              <input type="number" id="minutes3" min="0" max="59" value="5">
+            </div>
+            <div class="input-group">
+              <label for="seconds3" data-i18n="seconds">Seconds</label>
+              <input type="number" id="seconds3" min="0" max="59" value="0">
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <div class="message-area" id="messageArea" role="alert"></div>
+    </main>
+
+    <footer class="app-footer">
+      <small data-i18n="footer">Designed for conference chairs — stay on track effortlessly.</small>
+    </footer>
+  </div>
+
+  <script src="scripts/i18n.js" type="module"></script>
+  <script src="scripts/audio.js" type="module"></script>
+  <script src="scripts/timer.js" type="module"></script>
+  <script src="scripts/app.js" type="module"></script>
+</body>
+</html>
