@@ -11,12 +11,12 @@ const CHIME_PATTERNS = {
     frequencies: [880],
   },
   2: {
-    offsets: [0, 0.72],
-    frequencies: [880, 988],
+    offsets: [0, 0.6],
+    frequencies: [880, 880],
   },
   3: {
-    offsets: [0, 0.72, 0.72],
-    frequencies: [880, 1047, 988],
+    offsets: [0, 0.6, 0.6],
+    frequencies: [880, 880, 880],
   },
 };
 
@@ -29,7 +29,7 @@ const PARTIALS = [
   { ratio: 6.79, gain: 0.12 },
 ];
 
-const BELL_DURATION = 3.2;
+const BELL_DURATION = 1.6;
 
 export async function initAudio(ctx) {
   if (initialized) {
