@@ -102,27 +102,27 @@ function setupEventListeners() {
     const audioReady = await ensureAudioReady();
     if (!audioReady) return;
     timer.start();
-    updateControls(timer.getSnapshot().status);
+    updateControls(timer.getSnapshot());
   });
 
   elements.pauseBtn.addEventListener('click', () => {
     timer.pause();
-    updateControls(timer.getSnapshot().status);
+    updateControls(timer.getSnapshot());
   });
 
   elements.resumeBtn.addEventListener('click', () => {
     timer.resume();
-    updateControls(timer.getSnapshot().status);
+    updateControls(timer.getSnapshot());
   });
 
   elements.resetBtn.addEventListener('click', () => {
     timer.reset();
-    updateControls(timer.getSnapshot().status);
+    updateControls(timer.getSnapshot());
   });
 
   elements.skipBtn.addEventListener('click', () => {
     timer.skip();
-    updateControls(timer.getSnapshot().status);
+    updateControls(timer.getSnapshot());
   });
 
   elements.volumeSlider.addEventListener('input', (event) => {
@@ -184,15 +184,15 @@ function setupEventListeners() {
         elements.startBtn.click();
         return;
       }
-      updateControls(timer.getSnapshot().status);
+      updateControls(timer.getSnapshot());
     } else if (event.code === 'KeyR') {
       event.preventDefault();
       timer.reset();
-      updateControls(timer.getSnapshot().status);
+      updateControls(timer.getSnapshot());
     } else if (event.code === 'ArrowRight') {
       event.preventDefault();
       timer.skip();
-      updateControls(timer.getSnapshot().status);
+      updateControls(timer.getSnapshot());
     }
   });
 }
@@ -226,7 +226,7 @@ function handleSectionEnd(sectionIndex) {
 }
 
 function handleComplete() {
-  updateControls(timer.getSnapshot().status);
+  updateControls(timer.getSnapshot());
   showMessage(i18n.t('finished'), 'success');
 }
 
@@ -430,7 +430,7 @@ function updateUI(snapshot) {
   updateSectionLabels(snapshot);
   updateNextSection(snapshot);
   updateProgress(snapshot);
-  updateControls(snapshot.status);
+  updateControls(snapshot);
 }
 
 function ensureProgressStructure(count) {
@@ -441,29 +441,43 @@ function ensureProgressStructure(count) {
 }
 
 function updateTimeDisplay(snapshot) {
-  const remaining = Math.max(0, snapshot.remaining || 0);
-  elements.timeDisplay.textContent = formatTime(remaining);
+  if (!elements.timeDisplay) return;
+  const overtime = snapshot.isOverrun ? snapshot.overrun : 0;
+  if (snapshot.isOverrun) {
+    elements.timeDisplay.textContent = `+${formatTimeValue(overtime)}`;
+  } else {
+    elements.timeDisplay.textContent = formatTimeValue(snapshot.remainingTotal);
+  }
+  elements.timeDisplay.classList.toggle('overtime', snapshot.isOverrun);
 }
 
 function updateSectionLabels(snapshot) {
-  if (snapshot.status === 'finished') {
-    elements.currentSection.textContent = i18n.t('finished');
+  const cumulative = getCumulativeDurations(state.durations);
+  if (!cumulative.length) {
+    elements.currentSection.textContent = '';
     return;
   }
-  const cumulative = getCumulativeDurations(state.durations);
-  const index = Math.min(snapshot.sectionIndex, cumulative.length - 1);
+  if (snapshot.isOverrun) {
+    elements.currentSection.textContent = i18n.t('overtime');
+    return;
+  }
+  const index = snapshot.nextSectionIndex ?? Math.max(cumulative.length - 1, 0);
   elements.currentSection.textContent = formatMarkerHeading(index, cumulative[index]);
 }
 
 function updateNextSection(snapshot) {
-  if (snapshot.status === 'finished' || snapshot.nextSectionIndex === null) {
+  if (snapshot.isOverrun || snapshot.nextSectionIndex === null) {
     elements.nextSection.textContent = '';
     return;
   }
   const cumulative = getCumulativeDurations(state.durations);
-  const nextIndex = snapshot.nextSectionIndex;
+  const nextIndex = snapshot.nextSectionIndex + 1;
+  if (nextIndex >= cumulative.length) {
+    elements.nextSection.textContent = '';
+    return;
+  }
   const countText = formatCountText(timer.getChimeCount(nextIndex));
-  const time = formatTime(cumulative[nextIndex]);
+  const time = formatTimeValue(cumulative[nextIndex]);
   elements.nextSection.textContent = i18n.t('nextMarker', { count: countText, time });
 }
 
@@ -478,32 +492,29 @@ function updateProgress(snapshot) {
   updateProgressLabels();
 }
 
-function updateControls(status) {
+function updateControls(snapshot) {
+  const status = snapshot?.status ?? 'idle';
+  const hasNext = Boolean(snapshot && snapshot.nextSectionIndex !== null);
+
   switch (status) {
     case 'running':
       elements.startBtn.disabled = true;
       elements.pauseBtn.disabled = false;
       elements.resumeBtn.disabled = true;
-      elements.skipBtn.disabled = false;
       break;
     case 'paused':
       elements.startBtn.disabled = true;
       elements.pauseBtn.disabled = true;
       elements.resumeBtn.disabled = false;
-      elements.skipBtn.disabled = false;
-      break;
-    case 'finished':
-      elements.startBtn.disabled = false;
-      elements.pauseBtn.disabled = true;
-      elements.resumeBtn.disabled = true;
-      elements.skipBtn.disabled = true;
       break;
     default:
       elements.startBtn.disabled = false;
       elements.pauseBtn.disabled = true;
       elements.resumeBtn.disabled = true;
-      elements.skipBtn.disabled = true;
+      break;
   }
+
+  elements.skipBtn.disabled = !hasNext || status === 'idle';
 }
 
 function updateVolumeDisplay(value) {
@@ -544,7 +555,7 @@ function formatMarkerHeading(index, totalSeconds) {
   const countText = formatCountText(timer.getChimeCount(index));
   return i18n.t('markerHeading', {
     count: countText,
-    time: formatTime(totalSeconds),
+    time: formatTimeValue(totalSeconds),
   });
 }
 
@@ -557,7 +568,7 @@ function formatCountText(count) {
   return `${count} ${bellWord}${plural}`;
 }
 
-function formatTime(seconds) {
+function formatTimeValue(seconds) {
   const totalSeconds = Math.max(0, Math.round(seconds));
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;

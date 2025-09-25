@@ -224,6 +224,10 @@ body:focus-visible {
   min-width: 220px;
 }
 
+#timeDisplay.overtime {
+  color: var(--danger-color);
+}
+
 .progress-panel {
   display: grid;
   gap: 0.9rem;
