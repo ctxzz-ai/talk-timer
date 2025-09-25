@@ -42,12 +42,15 @@
           <p class="next-section" id="nextSection"></p>
         </div>
         <div class="timer-display" aria-live="polite" aria-atomic="true">
-          <span id="timeDisplay">20:00</span>
+          <span id="timeDisplay">00:00</span>
         </div>
       </section>
 
       <section class="progress-panel" aria-label="progress">
-        <div id="progressList" class="progress-list" role="list"></div>
+        <div id="progressTrack" class="progress-track" role="presentation" aria-hidden="true">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+        <div id="progressMarkerLabels" class="progress-marker-labels" role="list"></div>
       </section>
 
       <section class="controls-panel" aria-label="timer controls">

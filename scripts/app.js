@@ -16,10 +16,12 @@ const STORAGE_KEYS = {
   mute: 'talk-timer.mute',
 };
 
-const DEFAULT_DURATIONS = [600, 300, 300];
+const DEFAULT_DURATIONS = [900, 300, 300];
 const MIN_MARKERS = 3;
 const state = {
   durations: [...DEFAULT_DURATIONS],
+  markerLines: [],
+  markerLabels: [],
 };
 
 const timer = new Timer({ durations: DEFAULT_DURATIONS });
@@ -49,7 +51,7 @@ async function bootstrap() {
     updateLanguageToggle();
     updateManualChimeLabels();
     updateSettingsDisplay();
-    renderProgressBars();
+    renderProgressStructure();
     updateUI(timer.getSnapshot());
   });
 
@@ -63,7 +65,9 @@ function cacheElements() {
     timeDisplay: document.getElementById('timeDisplay'),
     currentSection: document.getElementById('currentSection'),
     nextSection: document.getElementById('nextSection'),
-    progressList: document.getElementById('progressList'),
+    progressTrack: document.getElementById('progressTrack'),
+    progressFill: document.getElementById('progressFill'),
+    progressMarkerLabels: document.getElementById('progressMarkerLabels'),
     startBtn: document.getElementById('startBtn'),
     pauseBtn: document.getElementById('pauseBtn'),
     resumeBtn: document.getElementById('resumeBtn'),
@@ -84,7 +88,7 @@ function restoreSettings() {
   state.durations = ensureMinimumDurations(storedDurations);
   timer.setDurations(state.durations);
   renderSettings();
-  renderProgressBars();
+  renderProgressStructure();
   updateSettingsDisplay();
 
   const volume = loadVolume();
@@ -265,8 +269,8 @@ function applyDurations(durations, { rebuild = false } = {}) {
   saveDurations(durations);
   if (rebuild) {
     renderSettings();
-    renderProgressBars();
   }
+  renderProgressStructure();
   updateSettingsDisplay();
   updateUI(timer.getSnapshot());
 }
@@ -387,45 +391,63 @@ function updateSettingsDisplay() {
   if (addLabel) {
     addLabel.textContent = i18n.t('addMarker');
   }
+  updateMarkerLabels();
 }
 
-function renderProgressBars() {
-  if (!elements.progressList) return;
-  elements.progressList.innerHTML = '';
-  const fragment = document.createDocumentFragment();
-  state.durations.forEach((_, index) => {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'progress-bar';
-    wrapper.dataset.index = index;
-    wrapper.setAttribute('role', 'listitem');
+function renderProgressStructure() {
+  if (!elements.progressTrack || !elements.progressMarkerLabels) return;
+  clearProgressMarkers();
 
-    const inner = document.createElement('div');
-    inner.className = 'progress-bar-inner';
-    wrapper.appendChild(inner);
-
-    const label = document.createElement('span');
-    label.className = 'progress-label';
-    wrapper.appendChild(label);
-
-    fragment.appendChild(wrapper);
-  });
-  elements.progressList.appendChild(fragment);
-  elements.progressItems = Array.from(elements.progressList.querySelectorAll('.progress-bar-inner'));
-  elements.progressLabels = Array.from(elements.progressList.querySelectorAll('.progress-label'));
-  updateProgressLabels();
-}
-
-function updateProgressLabels() {
   const cumulative = getCumulativeDurations(state.durations);
-  if (!elements.progressLabels) return;
-  elements.progressLabels.forEach((label, index) => {
-    label.textContent = formatMarkerHeading(index, cumulative[index]);
+  const total = cumulative.length ? cumulative[cumulative.length - 1] : 0;
+
+  cumulative.forEach((totalSeconds, index) => {
+    const percent = total > 0 ? (totalSeconds / total) * 100 : 0;
+    const clamped = Math.max(0, Math.min(100, percent));
+
+    const marker = document.createElement('div');
+    marker.className = 'progress-marker';
+    marker.dataset.index = index;
+    marker.style.left = `${clamped}%`;
+    marker.setAttribute('aria-hidden', 'true');
+    elements.progressTrack.appendChild(marker);
+    state.markerLines.push(marker);
+
+    const label = document.createElement('div');
+    label.className = 'progress-marker-label';
+    label.dataset.index = index;
+    label.style.left = `${clamped}%`;
+    label.setAttribute('role', 'listitem');
+    if (clamped < 8) {
+      label.classList.add('align-start');
+    } else if (clamped > 92) {
+      label.classList.add('align-end');
+    }
+    elements.progressMarkerLabels.appendChild(label);
+    state.markerLabels.push(label);
   });
+
+  updateMarkerLabels();
+}
+
+function clearProgressMarkers() {
+  state.markerLines.forEach((marker) => {
+    if (marker && typeof marker.remove === 'function') {
+      marker.remove();
+    }
+  });
+  state.markerLabels.forEach((label) => {
+    if (label && typeof label.remove === 'function') {
+      label.remove();
+    }
+  });
+  state.markerLines = [];
+  state.markerLabels = [];
 }
 
 function updateUI(snapshot) {
   if (!snapshot) return;
-  ensureProgressStructure(snapshot.totalSections);
+  ensureProgressMarkers();
   updateTimeDisplay(snapshot);
   updateSectionLabels(snapshot);
   updateNextSection(snapshot);
@@ -433,21 +455,17 @@ function updateUI(snapshot) {
   updateControls(snapshot);
 }
 
-function ensureProgressStructure(count) {
-  if (!elements.progressList) return;
-  if (elements.progressList.childElementCount !== count) {
-    renderProgressBars();
+function ensureProgressMarkers() {
+  if (!elements.progressTrack) return;
+  if (state.markerLines.length !== state.durations.length) {
+    renderProgressStructure();
   }
 }
 
 function updateTimeDisplay(snapshot) {
   if (!elements.timeDisplay) return;
-  const overtime = snapshot.isOverrun ? snapshot.overrun : 0;
-  if (snapshot.isOverrun) {
-    elements.timeDisplay.textContent = `+${formatTimeValue(overtime)}`;
-  } else {
-    elements.timeDisplay.textContent = formatTimeValue(snapshot.remainingTotal);
-  }
+  const elapsed = Math.max(0, snapshot.totalElapsed);
+  elements.timeDisplay.textContent = formatTimeValue(elapsed);
   elements.timeDisplay.classList.toggle('overtime', snapshot.isOverrun);
 }
 
@@ -458,7 +476,8 @@ function updateSectionLabels(snapshot) {
     return;
   }
   if (snapshot.isOverrun) {
-    elements.currentSection.textContent = i18n.t('overtime');
+    const overtimeText = formatTimeValue(snapshot.overrun);
+    elements.currentSection.textContent = i18n.t('overtimeWith', { time: overtimeText });
     return;
   }
   const index = snapshot.nextSectionIndex ?? Math.max(cumulative.length - 1, 0);
@@ -482,14 +501,45 @@ function updateNextSection(snapshot) {
 }
 
 function updateProgress(snapshot) {
-  if (!elements.progressItems) return;
-  snapshot.sections.forEach((section, index) => {
-    const inner = elements.progressItems[index];
-    if (!inner) return;
-    const width = Math.max(0, Math.min(100, section.progress * 100));
-    inner.style.width = `${width}%`;
+  if (!elements.progressFill || !elements.progressTrack) return;
+  const cumulative = getCumulativeDurations(state.durations);
+  const total = cumulative.length ? cumulative[cumulative.length - 1] : 0;
+  const elapsed = Math.max(0, snapshot.totalElapsed);
+  const percent = total > 0 ? (Math.min(elapsed, total) / total) * 100 : 0;
+  const clamped = Math.max(0, Math.min(100, percent));
+  elements.progressFill.style.width = `${clamped}%`;
+  elements.progressTrack.classList.toggle('overtime', snapshot.isOverrun);
+  updateMarkerStates(snapshot, cumulative);
+}
+
+function updateMarkerLabels() {
+  if (!state.markerLabels.length) return;
+  const cumulative = getCumulativeDurations(state.durations);
+  state.markerLabels.forEach((label, index) => {
+    const total = cumulative[index] ?? 0;
+    const text = formatMarkerHeading(index, total);
+    label.textContent = text;
+    label.setAttribute('aria-label', text);
   });
-  updateProgressLabels();
+}
+
+function updateMarkerStates(snapshot, cumulative) {
+  if (!cumulative) {
+    cumulative = getCumulativeDurations(state.durations);
+  }
+  const nextIndex = snapshot.nextSectionIndex;
+  state.markerLines.forEach((marker, index) => {
+    const threshold = cumulative[index] ?? 0;
+    const completed = snapshot.totalElapsed >= threshold - 0.01;
+    marker.classList.toggle('completed', completed);
+    marker.classList.toggle('active', !snapshot.isOverrun && nextIndex === index);
+  });
+  state.markerLabels.forEach((label, index) => {
+    const threshold = cumulative[index] ?? 0;
+    const completed = snapshot.totalElapsed >= threshold - 0.01;
+    label.classList.toggle('completed', completed);
+    label.classList.toggle('active', !snapshot.isOverrun && nextIndex === index);
+  });
 }
 
 function updateControls(snapshot) {

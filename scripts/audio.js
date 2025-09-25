@@ -1,15 +1,35 @@
-const CHIME_URLS = {
-  1: 'https://opengameart.org/sites/default/files/bell1.mp3',
-  2: 'https://opengameart.org/sites/default/files/bell2.mp3',
-  3: 'https://opengameart.org/sites/default/files/bell3.mp3',
-};
-
 let audioContext = null;
 let masterGain = null;
 let initialized = false;
 let volume = 1;
 let muted = false;
-const chimeBuffers = new Map();
+let noiseBuffer = null;
+
+const CHIME_PATTERNS = {
+  1: {
+    offsets: [0],
+    frequencies: [880],
+  },
+  2: {
+    offsets: [0, 0.72],
+    frequencies: [880, 988],
+  },
+  3: {
+    offsets: [0, 0.72, 0.72],
+    frequencies: [880, 1047, 988],
+  },
+};
+
+const PARTIALS = [
+  { ratio: 1, gain: 1 },
+  { ratio: 2.01, gain: 0.42 },
+  { ratio: 2.74, gain: 0.3 },
+  { ratio: 3.76, gain: 0.25 },
+  { ratio: 5.12, gain: 0.18 },
+  { ratio: 6.79, gain: 0.12 },
+];
+
+const BELL_DURATION = 3.2;
 
 export async function initAudio(ctx) {
   if (initialized) {
@@ -31,13 +51,7 @@ export async function initAudio(ctx) {
 
   await audioContext.resume();
 
-  try {
-    await loadChimeBuffers();
-    initialized = true;
-  } catch (error) {
-    dispose();
-    throw error;
-  }
+  initialized = true;
 }
 
 export async function playChime(count = 1) {
@@ -45,11 +59,22 @@ export async function playChime(count = 1) {
     throw new Error('Audio not initialized');
   }
   const target = normalizeCount(count);
-  const buffer = chimeBuffers.get(target);
-  if (!buffer) {
-    throw new Error('Chime audio unavailable');
-  }
-  await playBuffer(buffer);
+  const pattern = CHIME_PATTERNS[target] || CHIME_PATTERNS[1];
+  const startAt = audioContext.currentTime + 0.05;
+  let cursor = startAt;
+  pattern.offsets.forEach((offset, index) => {
+    if (index === 0) {
+      cursor = startAt;
+    } else {
+      cursor += Math.max(0, Number(offset) || 0);
+    }
+    const freq = pattern.frequencies[index] || pattern.frequencies[pattern.frequencies.length - 1];
+    scheduleBellStrike(cursor, freq);
+  });
+
+  const totalDuration = (cursor + BELL_DURATION) - audioContext.currentTime;
+  if (totalDuration <= 0) return;
+  await waitSeconds(totalDuration);
 }
 
 export function setVolume(value) {
@@ -79,47 +104,61 @@ export function isMutedState() {
   return muted;
 }
 
-async function loadChimeBuffers() {
-  const entries = Object.entries(CHIME_URLS);
-  if (entries.length === 0) return;
-  chimeBuffers.clear();
-  await Promise.all(entries.map(async ([count, url]) => {
-    const buffer = await fetchAndDecode(url);
-    chimeBuffers.set(Number(count), buffer);
-  }));
-}
+function scheduleBellStrike(startTime, frequency) {
+  const envelope = audioContext.createGain();
+  envelope.gain.setValueAtTime(0.0001, startTime);
+  envelope.gain.exponentialRampToValueAtTime(1, startTime + 0.01);
+  envelope.gain.exponentialRampToValueAtTime(0.002, startTime + BELL_DURATION);
+  envelope.connect(masterGain);
 
-async function fetchAndDecode(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to load audio: ${response.status} ${response.statusText}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  return decodeBuffer(arrayBuffer);
-}
+  const shimmer = audioContext.createGain();
+  shimmer.gain.setValueAtTime(0.18, startTime);
+  shimmer.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.4);
+  shimmer.connect(masterGain);
 
-function decodeBuffer(arrayBuffer) {
-  return new Promise((resolve, reject) => {
-    audioContext.decodeAudioData(
-      arrayBuffer,
-      (decoded) => resolve(decoded),
-      (error) => reject(error || new Error('Audio decode failed')),
-    );
+  const vibrato = audioContext.createOscillator();
+  vibrato.type = 'sine';
+  vibrato.frequency.setValueAtTime(5.2, startTime);
+  const vibratoGain = audioContext.createGain();
+  vibratoGain.gain.setValueAtTime(frequency * 0.003, startTime);
+  vibrato.connect(vibratoGain);
+
+  PARTIALS.forEach(({ ratio, gain }) => {
+    const osc = audioContext.createOscillator();
+    osc.type = 'sine';
+    const baseFreq = frequency * ratio;
+    osc.frequency.setValueAtTime(baseFreq, startTime);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.998, startTime + BELL_DURATION);
+    const partialGain = audioContext.createGain();
+    partialGain.gain.setValueAtTime(gain, startTime);
+    partialGain.gain.exponentialRampToValueAtTime(gain * 0.4, startTime + BELL_DURATION);
+    vibratoGain.connect(osc.frequency);
+    osc.connect(partialGain);
+    partialGain.connect(envelope);
+    osc.start(startTime);
+    osc.stop(startTime + BELL_DURATION + 0.2);
   });
-}
 
-function playBuffer(buffer) {
-  return new Promise((resolve, reject) => {
-    try {
-      const source = audioContext.createBufferSource();
-      source.buffer = buffer;
-      source.connect(masterGain);
-      source.onended = () => resolve();
-      source.start();
-    } catch (error) {
-      reject(error);
-    }
-  });
+  const strikeSource = audioContext.createBufferSource();
+  strikeSource.buffer = getNoiseBuffer();
+  const strikeFilter = audioContext.createBiquadFilter();
+  strikeFilter.type = 'bandpass';
+  strikeFilter.frequency.setValueAtTime(frequency * 2.6, startTime);
+  strikeFilter.Q.value = 10;
+
+  const strikeGain = audioContext.createGain();
+  strikeGain.gain.setValueAtTime(0.4, startTime);
+  strikeGain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.18);
+
+  strikeSource.connect(strikeFilter);
+  strikeFilter.connect(strikeGain);
+  strikeGain.connect(shimmer);
+
+  strikeSource.start(startTime);
+  strikeSource.stop(startTime + 0.2);
+
+  vibrato.start(startTime);
+  vibrato.stop(startTime + BELL_DURATION + 0.2);
 }
 
 function normalizeCount(count) {
@@ -136,7 +175,7 @@ function clamp(value, min, max) {
 
 function dispose() {
   initialized = false;
-  chimeBuffers.clear();
+  noiseBuffer = null;
   if (masterGain) {
     try {
       masterGain.disconnect();
@@ -156,4 +195,22 @@ function isAudioContext(candidate) {
     && typeof candidate.state === 'string'
     && typeof candidate.resume === 'function'
     && (!ContextCtor || candidate instanceof ContextCtor);
+}
+
+function getNoiseBuffer() {
+  if (noiseBuffer) return noiseBuffer;
+  const length = Math.max(1, Math.floor((audioContext.sampleRate || 44100) * 0.3));
+  const buffer = audioContext.createBuffer(1, length, audioContext.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i += 1) {
+    data[i] = (Math.random() * 2) - 1;
+  }
+  noiseBuffer = buffer;
+  return noiseBuffer;
+}
+
+function waitSeconds(seconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, seconds) * 1000);
+  });
 }

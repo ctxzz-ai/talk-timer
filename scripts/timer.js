@@ -1,5 +1,5 @@
 export class Timer {
-  constructor({ durations = [600, 300, 300], chimeStrategy } = {}) {
+  constructor({ durations = [900, 300, 300], chimeStrategy } = {}) {
     this.chimeStrategy = typeof chimeStrategy === 'function'
       ? chimeStrategy
       : (index) => (index + 1 >= 3 ? 3 : index + 1);
@@ -8,7 +8,7 @@ export class Timer {
     this.onSectionEnd = null;
     this.onComplete = null;
 
-    this._applyDurations(Array.isArray(durations) && durations.length ? durations : [600, 300, 300]);
+    this._applyDurations(Array.isArray(durations) && durations.length ? durations : [900, 300, 300]);
     this._resetState();
   }
 
